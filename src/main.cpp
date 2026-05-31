@@ -1,91 +1,79 @@
-// #include <Arduino.h>
-// #include <ESP32Servo.h>
-// #include <WiFi.h>
-// #include <WiFiUdp.h>
+/*
+main.cpp - ESP32 TCP server for controlling a servo motor
+- Connects to WiFi and starts a TCP server on port 9000
+acts as the server for the program running on the esp32.
+*/
 
-// // 1. Radio Settings (Access Point)
-// const char* netWorkName = "RaceCar";
-// const char* password = "JdmLegend180sxorMx5";
-
-// WiFiUDP udp;
-// unsigned int port = 6000;
-// char packetBuffer[255];
-
-
-// // put function / declarations here:
-// Servo myServo;
-// const int servoPin = 12;
-
-// void setup() {
-//   // put your setup code here, to run once:
-//   Serial.begin(115200);
-//   myServo.attach(servoPin);
-
-//   WiFi.softAP(netWorkName, password);
-//   Serial.println("Robot Radio is LIVE.");
-//   Serial.print("Connect to WiFi: "); Serial.println(netWorkName);
-
-//   udp.begin(port);
-  
-
-//   // ESP32PWM::allocateTimer(0);
-//   // ESP32PWM::allocateTimer(1);
-//   // ESP32PWM::allocateTimer(2);
-//   // ESP32PWM::allocateTimer(3);
-
-//   // myServo.setPeriodHertz(50);
-//   // myServo.attach(servoPin, 500, 2400);
-// }
-
-// void loop() {
-//   // put your main code here, to run repeatedly:
-
-//   int packetSize = udp.parsePacket();
-//   if(packetSize) { // if we got a new packet ready for us to check out
-//     int packetLen = udp.read(packetBuffer, 255); // limit the esp reading to a max of 255
-//     if(packetLen > 0) {
-//       packetBuffer[packetLen] = 0;
-//     }
-
-//     int angle = atoi(packetBuffer);
-
-//     //move
-//     if (angle >= 0 && angle <= 180) {
-//       myServo.write(angle);
-//       Serial.println("Steering to: "); Serial.println(angle);
-//     }
-//   }
-//   // for(int pos = 0; pos <= 180; pos++) {
-//   //   myServo.write(pos);
-//   //   delay(15);
-//   // }
-//   // for (int pos = 180; pos >= 0; pos--) {
-//   //   myServo.write(pos);
-//   //   delay(15);
-//   // }
- 
-// }
+#include <Arduino.h>
+#include <WiFi.h>
 #include <ESP32Servo.h>
+#include <iostream>
 
-Servo myServo;
-int servoPin = 13; 
+#define WIFI_NAME   "Melar2.4"
+#define WIFI_PASS   "ariel778"
+
+// #define WIFI_NAME "Adassim"
+// #define WIFI_PASS "20406080"
+
+#define SERVO_PIN   18
+
+#define PORT        9000
+#define ANGLE_MIN   80
+#define ANGLE_MAX   140
+#define ANGLE_CENTER 110
+
+Servo steeringServo;
+WiFiServer server(PORT);
 
 void setup() {
-  // Allow allocation of all timers
-  ESP32PWM::allocateTimer(0);
-  ESP32PWM::allocateTimer(1);
-  ESP32PWM::allocateTimer(2);
-  ESP32PWM::allocateTimer(3);
-  
-  myServo.setPeriodHertz(50);    // Standard 50hz servo
-  myServo.attach(servoPin, 500, 2400); // Attach with min/max pulse widths
+    Serial.begin(115200);
+
+    Serial.print("Connecting to WiFi");
+    WiFi.begin(WIFI_NAME, WIFI_PASS);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    // Serial.println("WiFi connected!");
+    std::cout << "WiFi connected!" << "/n";
+    // Serial.println("ESP32 IP address: ");
+    std::cout << "ESP32 IP address: " << WiFi.localIP() << "\n";
+    // Serial.print(WiFi.localIP());
+    server.begin();
+    // Serial.println("TCP server started on port " + String(PORT));
+    std::cout << "TCP server started on port " << PORT << "\n";
+
+    steeringServo.attach(SERVO_PIN);
+    steeringServo.write(ANGLE_CENTER);
+    // Serial.println("Servo ready at center (110)");
+    std::cout << "Servo ready at center (" << ANGLE_CENTER << ")\n";
 }
 
 void loop() {
-  myServo.write(80);  // Move to 90 degrees
-  delay(1000);
-   myServo.write(110);   // Move to 0 degrees
-  delay(1000);
-  myServo.write(130); // Move to 180 degrees
-  delay(1000);
+    WiFiClient client = server.available();
+
+    if (client) {
+        Serial.println("Client connected");
+
+        while (client.connected()) {
+            if (client.available()) {
+                String incoming = client.readStringUntil('\n');
+                incoming.trim();
+
+                int angle = incoming.toInt();
+
+                if (angle >= ANGLE_MIN && angle <= ANGLE_MAX) {
+                    steeringServo.write(angle);
+                    // Serial.println("Angle: " + String(angle));
+                    std::cout << "Angle: " << angle << "\n";
+                } else {
+                    // Serial.println("Ignored out-of-range value: " + incoming);
+                    std::cout << "Ignored out-of-range value: " << incoming << "\n";
+                }
+            }
+        }
+
+        client.stop();
+        Serial.println("Client disconnected");
+    }
 }
