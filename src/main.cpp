@@ -1,79 +1,105 @@
-/*
-main.cpp - ESP32 TCP server for controlling a servo motor
-- Connects to WiFi and starts a TCP server on port 9000
-acts as the server for the program running on the esp32.
-*/
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESP32Servo.h>
+#include <WiFiUdp.h>
+#include <vector>
 #include <iostream>
+
 
 #define WIFI_NAME   "Melar2.4"
 #define WIFI_PASS   "ariel778"
 
-// #define WIFI_NAME "Adassim"
-// #define WIFI_PASS "20406080"
+// // #define WIFI_NAME "Adassim"
+// // #define WIFI_PASS "20406080"
 
-#define SERVO_PIN   18
-
-#define PORT        9000
-#define ANGLE_MIN   80
-#define ANGLE_MAX   140
+#define SERVO_PIN    18
+#define PORT         5005
+#define ANGLE_MIN    80
+#define ANGLE_MAX    140
 #define ANGLE_CENTER 110
 
-Servo steeringServo;
-WiFiServer server(PORT);
 
+struct ControlPacket {
+    int angle;
+    float throttle;
+    float speed;
+};
+
+Servo steeringServo;
+WiFiUDP udpServer;
+
+std::vector<IPAddress> playerQueue;
+
+//==============================================================
 void setup() {
     Serial.begin(115200);
 
-    Serial.print("Connecting to WiFi");
+    std::cout << "Connecting to WiFi...";
     WiFi.begin(WIFI_NAME, WIFI_PASS);
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
-        Serial.print(".");
+        std::cout << ".";
     }
-    // Serial.println("WiFi connected!");
-    std::cout << "WiFi connected!" << "/n";
-    // Serial.println("ESP32 IP address: ");
-    std::cout << "ESP32 IP address: " << WiFi.localIP() << "\n";
-    // Serial.print(WiFi.localIP());
-    server.begin();
-    // Serial.println("TCP server started on port " + String(PORT));
-    std::cout << "TCP server started on port " << PORT << "\n";
+    
+    std::cout << "\nWiFi connected!\n";
+    std::cout << "ESP32 IP address: " << WiFi.localIP().toString().c_str() << "\n";
 
+    // Open up the UDP communication line
+    udpServer.begin(PORT);
+    std::cout << "UDP Server active on port " << PORT << "\n";
+
+    // Wake up the hardware servo
     steeringServo.attach(SERVO_PIN);
     steeringServo.write(ANGLE_CENTER);
-    // Serial.println("Servo ready at center (110)");
     std::cout << "Servo ready at center (" << ANGLE_CENTER << ")\n";
 }
 
+//==============================================================
+
 void loop() {
-    WiFiClient client = server.available();
+    int packetSize = udpServer.parsePacket();
 
-    if (client) {
-        Serial.println("Client connected");
+    // Check if an incoming packet has arrived
+    if (packetSize >= sizeof(ControlPacket)) {
+        IPAddress senderIP = udpServer.remoteIP();
+        ControlPacket packet;
+        
+        // 1. Read the raw bytes into our packet structure
+        udpServer.read((uint8_t*)&packet, sizeof(ControlPacket));
 
-        while (client.connected()) {
-            if (client.available()) {
-                String incoming = client.readStringUntil('\n');
-                incoming.trim();
-
-                int angle = incoming.toInt();
-
-                if (angle >= ANGLE_MIN && angle <= ANGLE_MAX) {
-                    steeringServo.write(angle);
-                    // Serial.println("Angle: " + String(angle));
-                    std::cout << "Angle: " << angle << "\n";
-                } else {
-                    // Serial.println("Ignored out-of-range value: " + incoming);
-                    std::cout << "Ignored out-of-range value: " << incoming << "\n";
-                }
+        // 2. Check if this client IP is already registered in our queue
+        int myPosition = -1;
+        for (size_t i = 0; i < playerQueue.size(); i++) {
+            if (playerQueue[i] == senderIP) {
+                myPosition = i;
+                break;
             }
         }
 
-        client.stop();
-        Serial.println("Client disconnected");
+        if (myPosition == -1) {
+            playerQueue.push_back(senderIP);
+            myPosition = playerQueue.size() - 1;
+            std::cout << "NEW PILOT LOGGED IN. Queue Size: " << playerQueue.size() << "\n";
+        }
+
+        if (myPosition == 0) {
+
+            if (packet.angle >= ANGLE_MIN && packet.angle <= ANGLE_MAX) {
+                steeringServo.write(packet.angle);
+                std::cout << "Angle: " << packet.angle << "\n";
+            }
+
+            int throttlePercent = (int)(packet.throttle * 100);
+            if (throttlePercent >= 0 && throttlePercent <= 100) {
+                std::cout << "Throttle: " << throttlePercent << "%\n";
+
+            }
+        }
+
+        // 5. Send their line ticket number back to their game window screen
+        udpServer.beginPacket(senderIP, udpServer.remotePort());
+        udpServer.write((uint8_t*)&myPosition, sizeof(myPosition));
+        udpServer.endPacket();
     }
 }
