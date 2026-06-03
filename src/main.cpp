@@ -15,9 +15,9 @@
 
 #define SERVO_PIN    18
 #define PORT         5005
-#define ANGLE_MIN    80
+#define ANGLE_MIN    87
 #define ANGLE_MAX    140
-#define ANGLE_CENTER 110
+#define ANGLE_CENTER 117
 
 
 struct ControlPacket {
@@ -45,11 +45,9 @@ void setup() {
     std::cout << "\nWiFi connected!\n";
     std::cout << "ESP32 IP address: " << WiFi.localIP().toString().c_str() << "\n";
 
-    // Open up the UDP communication line
     udpServer.begin(PORT);
     std::cout << "UDP Server active on port " << PORT << "\n";
 
-    // Wake up the hardware servo
     steeringServo.attach(SERVO_PIN);
     steeringServo.write(ANGLE_CENTER);
     std::cout << "Servo ready at center (" << ANGLE_CENTER << ")\n";
@@ -60,15 +58,12 @@ void setup() {
 void loop() {
     int packetSize = udpServer.parsePacket();
 
-    // Check if an incoming packet has arrived
     if (packetSize >= sizeof(ControlPacket)) {
         IPAddress senderIP = udpServer.remoteIP();
         ControlPacket packet;
         
-        // 1. Read the raw bytes into our packet structure
         udpServer.read((uint8_t*)&packet, sizeof(ControlPacket));
 
-        // 2. Check if this client IP is already registered in our queue
         int myPosition = -1;
         for (size_t i = 0; i < playerQueue.size(); i++) {
             if (playerQueue[i] == senderIP) {
@@ -97,7 +92,6 @@ void loop() {
             }
         }
 
-        // 5. Send their line ticket number back to their game window screen
         udpServer.beginPacket(senderIP, udpServer.remotePort());
         udpServer.write((uint8_t*)&myPosition, sizeof(myPosition));
         udpServer.endPacket();
